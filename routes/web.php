@@ -4,14 +4,15 @@ use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('welcome');
-})->name('home');
+    return Inertia::render('app');
+})->where('any', '.*');
 
-Route::middleware(['auth', 'verified'])->group(function () {
-    Route::get('dashboard', function () {
-        return Inertia::render('dashboard');
-    })->name('dashboard');
-});
+use App\Http\Controllers\FileManagerController;
 
-require __DIR__.'/settings.php';
-require __DIR__.'/auth.php';
+Route::prefix('file-manager')->group(function () {
+    Route::get('/files', [FileManagerController::class, 'getFiles']);
+    Route::post('/directory', [FileManagerController::class, 'createDirectory']);
+    Route::post('/upload', [FileManagerController::class, 'uploadFiles']);
+    Route::delete('/file', [FileManagerController::class, 'deleteFile']);
+    Route::delete('/directory', [FileManagerController::class, 'deleteDirectory']);
+})->middleware('web');
