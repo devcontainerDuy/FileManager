@@ -4,53 +4,93 @@ namespace App\Http\Controllers;
 
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
-use Illuminate\Support\Str;
+use Inertia\Inertia;
 
 class FileManagerController extends Controller
 {
-    public function getFiles(Request $request)
+    public function index(Request $request)
     {
         $directory = $request->input('directory', '');
         $storagePath = 'public/' . ltrim($directory, '/');
 
+        $items = $this->getDirectoryContents($storagePath);
+
+        // Tạo breadcrumbs
+        $breadcrumbs = $this->generateBreadcrumbs($directory);
+
+        return Inertia::render('FileManager/Index', [
+            'files' => $items['files'],
+            'directories' => $items['directories'],
+            'currentDirectory' => $directory,
+            'breadcrumbs' => $breadcrumbs,
+            'parentDirectory' => $this->getParentDirectoryPath($directory),
+        ]);
+    }
+
+    public function getDirectoryContents($path)
+    {
         $files = [];
         $directories = [];
 
-        // Get files and directories
-        $storageItems = Storage::files($storagePath);
-        $storageDirectories = Storage::directories($storagePath);
-
-        foreach ($storageItems as $item) {
-            if (Str::startsWith($item, 'public/.')) {
-                continue; // Skip hidden files
-            }
+        // Lấy danh sách file
+        foreach (Storage::files($path) as $file) {
+            if (basename($file) === '.gitignore')
+                continue;
 
             $files[] = [
-                'name' => basename($item),
-                'path' => $item,
-                'url' => Storage::url($item),
-                'size' => Storage::size($item),
-                'mime_type' => Storage::mimeType($item),
-                'last_modified' => Storage::lastModified($item),
+                'name' => basename($file),
+                'path' => $file,
+                'url' => Storage::url($file),
+                'size' => Storage::size($file),
+                'type' => Storage::mimeType($file),
+                'last_modified' => Storage::lastModified($file),
+                'is_directory' => false,
             ];
         }
 
-        foreach ($storageDirectories as $dir) {
-            if (Str::startsWith($dir, 'public/.')) {
-                continue; // Skip hidden directories
-            }
-
+        // Lấy danh sách thư mục
+        foreach (Storage::directories($path) as $dir) {
             $directories[] = [
                 'name' => basename($dir),
                 'path' => $dir,
+                'is_directory' => true,
             ];
         }
 
-        return response()->json([
+        return [
             'files' => $files,
             'directories' => $directories,
-            'current_directory' => $directory,
-        ]);
+        ];
+    }
+
+    protected function generateBreadcrumbs($currentDirectory)
+    {
+        $breadcrumbs = [['name' => 'Root', 'path' => '']];
+
+        if (!empty($currentDirectory)) {
+            $parts = explode('/', $currentDirectory);
+            $path = '';
+
+            foreach ($parts as $part) {
+                $path .= $part . '/';
+                $breadcrumbs[] = [
+                    'name' => $part,
+                    'path' => rtrim($path, '/'),
+                ];
+            }
+        }
+
+        return $breadcrumbs;
+    }
+
+    protected function getParentDirectoryPath($currentDirectory)
+    {
+        if (empty($currentDirectory)) {
+            return null;
+        }
+
+        $parent = dirname($currentDirectory);
+        return $parent === '.' ? '' : $parent;
     }
 
     public function createDirectory(Request $request)
@@ -63,14 +103,14 @@ class FileManagerController extends Controller
         $path = 'public/' . ltrim($request->input('directory', ''), '/') . '/' . $request->name;
 
         if (Storage::exists($path)) {
-            return response()->json(['error' => 'Directory already exists'], 400);
+            return back()->with('error', 'Directory already exists');
         }
 
-        if (Storage::makeDirectory($path)) {
-            return response()->json(['message' => 'Directory created successfully']);
-        }
+        Storage::makeDirectory($path);
 
-        return response()->json(['error' => 'Failed to create directory'], 500);
+        return redirect()->route('file-manager.index', [
+            'directory' => $request->input('directory', '')
+        ])->with('success', 'Directory created');
     }
 
     public function uploadFiles(Request $request)
@@ -82,45 +122,31 @@ class FileManagerController extends Controller
         ]);
 
         $directory = 'public/' . ltrim($request->input('directory', ''), '/');
-        $uploadedFiles = [];
 
         foreach ($request->file('files') as $file) {
-            $path = $file->store($directory);
-            $uploadedFiles[] = [
-                'name' => $file->getClientOriginalName(),
-                'path' => $path,
-                'url' => Storage::url($path),
-                'size' => $file->getSize(),
-                'mime_type' => $file->getMimeType(),
-            ];
+            $file->storeAs($directory, $file->getClientOriginalName());
         }
 
-        return response()->json(['files' => $uploadedFiles]);
+        return redirect()->route('file-manager.index', [
+            'directory' => $request->input('directory', '')
+        ])->with('success', 'Files uploaded');
     }
 
-    public function deleteFile(Request $request)
+    public function deleteItem(Request $request)
     {
         $request->validate([
             'path' => 'required|string',
+            'is_directory' => 'required|boolean',
         ]);
 
-        if (Storage::delete($request->path)) {
-            return response()->json(['message' => 'File deleted successfully']);
+        $path = $request->path;
+
+        if ($request->is_directory) {
+            Storage::deleteDirectory($path);
+        } else {
+            Storage::delete($path);
         }
 
-        return response()->json(['error' => 'Failed to delete file'], 500);
-    }
-
-    public function deleteDirectory(Request $request)
-    {
-        $request->validate([
-            'path' => 'required|string',
-        ]);
-
-        if (Storage::deleteDirectory($request->path)) {
-            return response()->json(['message' => 'Directory deleted successfully']);
-        }
-
-        return response()->json(['error' => 'Failed to delete directory'], 500);
+        return back()->with('success', 'Item deleted');
     }
 }

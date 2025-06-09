@@ -1,18 +1,25 @@
 <?php
 
+use App\Http\Controllers\FileManagerController;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
 
 Route::get('/', function () {
-    return Inertia::render('app');
-})->where('any', '.*');
+    return Inertia::render('welcome');
+})->name('home');
 
-use App\Http\Controllers\FileManagerController;
+Route::middleware(['auth', 'verified'])->group(function () {
+    Route::get('dashboard', function () {
+        return Inertia::render('dashboard');
+    })->name('dashboard');
+});
 
-Route::prefix('file-manager')->group(function () {
-    Route::get('/files', [FileManagerController::class, 'getFiles']);
-    Route::post('/directory', [FileManagerController::class, 'createDirectory']);
-    Route::post('/upload', [FileManagerController::class, 'uploadFiles']);
-    Route::delete('/file', [FileManagerController::class, 'deleteFile']);
-    Route::delete('/directory', [FileManagerController::class, 'deleteDirectory']);
-})->middleware('web');
+require __DIR__.'/settings.php';
+require __DIR__.'/auth.php';
+
+Route::middleware(['auth', 'verified', 'web'])->group(function () {
+    Route::get('/file-manager', [FileManagerController::class, 'index'])->name('file-manager.index');
+    Route::post('/file-manager/directory', [FileManagerController::class, 'createDirectory'])->name('file-manager.create-directory');
+    Route::post('/file-manager/upload', [FileManagerController::class, 'uploadFiles'])->name('file-manager.upload');
+    Route::delete('/file-manager/delete', [FileManagerController::class, 'deleteItem'])->name('file-manager.delete');
+});
